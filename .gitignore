@@ -1,0 +1,4 @@
+db-backup/
+website-db/
+*.swp
+read_env.sh

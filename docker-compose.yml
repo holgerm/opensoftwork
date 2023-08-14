@@ -1,0 +1,73 @@
+services:
+    nginx:
+        container_name: nginx
+        image: nginxproxy/nginx-proxy
+        restart: unless-stopped
+        ports:
+            - 80:80
+            - 443:443
+        volumes:
+            - /var/run/docker.sock:/tmp/docker.sock:ro
+            - /var/docker/nginx/html:/usr/share/nginx/html
+            - /var/docker/nginx/certs:/etc/nginx/certs
+            - /var/docker/nginx/vhost:/etc/nginx/vhost.d
+        logging:
+            options:
+                max-size: "10m"
+                max-file: "3"
+
+    letsencrypt-companion:
+        container_name: letsencrypt-companion
+        image: nginxproxy/acme-companion 
+        restart: unless-stopped
+        volumes_from:
+            - nginx
+        volumes:
+            - /var/docker/nginx/certs:/etc/nginx/certs
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /var/docker/nginx/acme:/etc/acme.sh
+        environment:
+            DEFAULT_EMAIL: mail@holgermuegge.de
+
+    website:
+        image: wordpress
+        container_name: website
+        volumes:
+            - ./website:/var/www/html
+        environment:
+            WORDPRESS_DB_HOST: website-db:3306
+            WORDPRESS_DB_USER: ${DB_USER}
+            WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+            WORDPRESS_DB_NAME: wpdb
+            VIRTUAL_HOST: ${MY_HOST}
+            LETSENCRYPT_HOST: ${MY_HOST}
+        depends_on:
+            - website-db
+        restart: unless-stopped
+
+    website-db:
+        image: mariadb
+        container_name: website-db
+        volumes:
+            - ./website-db:/var/lib/mysql
+        environment:
+            MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD} 
+            MYSQL_DATABASE: wpdb
+            MYSQL_USER: ${DB_USER}
+            MYSQL_PASSWORD: ${DB_PASSWORD}
+        restart: unless-stopped      
+
+    periodic-backup:
+        build: ./periodic-backup
+        container_name: database-backup
+        environment:
+          MYSQL_CONTAINER_NAME: website-db
+          MYSQL_DATABASE: wpdb
+          MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+        volumes:
+          - /etc/localtime:/etc/localtime:ro
+          - ./db-backup:/opt/mysql/backup
+          - ./periodic-backup/scripts:/etc/periodic
+        command: crond -f -d 8
+        restart: always
+
